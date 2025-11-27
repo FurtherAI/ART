@@ -163,7 +163,7 @@ def tokenize_trajectory(
         str,
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
-            tools=tools,
+            tools=tools,  # type: ignore
             continue_final_message=True,
             tokenize=False,
         ),
@@ -172,7 +172,7 @@ def tokenize_trajectory(
         list[int],
         tokenizer.apply_chat_template(
             cast(list[dict], messages),
-            tools=tools,
+            tools=tools,  # type: ignore
             continue_final_message=True,
         ),
     )
@@ -198,7 +198,7 @@ def tokenize_trajectory(
                     for message_or_choice in messages_and_choices
                 ],
             ),
-            tools=tools,
+            tools=tools,  # type: ignore
             continue_final_message=True,
         ),
     )

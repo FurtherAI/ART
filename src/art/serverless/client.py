@@ -53,7 +53,9 @@ class ExperimentalTrainingConfig(TypedDict, total=False):
     advantage_balance: float | None
     epsilon: float | None
     epsilon_high: float | None
-    importance_sampling_level: Literal["token", "sequence"] | None
+    importance_sampling_level: (
+        Literal["token", "sequence", "average", "harmonic_average"] | None
+    )
     learning_rate: float | None
     max_negative_advantage_importance_sampling_weight: float | None
     ppo: bool | None
