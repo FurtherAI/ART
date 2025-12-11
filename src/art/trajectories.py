@@ -59,14 +59,17 @@ class Trajectory(pydantic.BaseModel):
         return self
 
     @asynccontextmanager
-    async def track_duration(self, metric_name: str) -> AsyncGenerator[None, None]:
+    async def track_duration(self, metric_names: list[str] | str) -> AsyncGenerator[None, None]:
         start_time = time.monotonic()
         try:
             yield
         finally:
             duration = time.monotonic() - start_time
-            metric_key = f"{metric_name}_duration"
-            self.metrics[metric_key] = self.metrics.get(metric_key, 0.0) + duration
+            if isinstance(metric_names, str):
+                metric_names = [metric_names]
+            for metric_name in metric_names:
+                metric_key = f"{metric_name}_duration"
+                self.metrics[metric_key] = self.metrics.get(metric_key, 0.0) + duration
 
     def __str__(self) -> str:
         return f"Trajectory(reward={self.reward}, metrics={self.metrics}, metadata={self.metadata})"
