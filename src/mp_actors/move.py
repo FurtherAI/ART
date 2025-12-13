@@ -293,5 +293,31 @@ async def _handle_request(
         response = Response(request.id, result, None)
     except Exception as e:
         pickling_support.install(e)
-        response = Response(request.id, None, e)
+        response = Response(request.id, None, _make_picklable_exception(e))
     responses.put_nowait(response)
+
+
+def _make_picklable_exception(e: Exception) -> Exception:
+    """
+    Ensure an exception can be pickled for sending across process boundaries.
+    
+    Some exceptions (e.g. Pydantic validation) contain internal
+    objects like ArgsKwargs that cannot be pickled. This function attempts to
+    pickle the exception and falls back to a simpler RuntimeError if pickling fails.
+    """
+    import pickle
+    import traceback
+    
+    try:
+        # Try to pickle the exception to verify it works
+        pickle.dumps(e)
+        return e
+    except Exception:
+        # If pickling fails, create a new exception with the essential info
+        # Format the full traceback as a string
+        tb_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        # Create a RuntimeError with the original exception info
+        new_exc = RuntimeError(
+            f"{type(e).__name__}: {e}\n\nOriginal traceback:\n{tb_str}"
+        )
+        return new_exc
