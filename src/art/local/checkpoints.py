@@ -1,7 +1,7 @@
 import os
 import shutil
 
-from art.utils.get_model_step import get_step_from_dir
+from art.utils.get_model_step import get_step_from_checkpoints
 
 
 def delete_checkpoints(output_dir: str, excluding: list[int]) -> None:
@@ -21,11 +21,16 @@ def delete_checkpoints(output_dir: str, excluding: list[int]) -> None:
 
 
 def get_last_checkpoint_dir(output_dir: str) -> str | None:
-    step = get_step_from_dir(output_dir)
-    if step == 0:
+    """Get the last checkpoint directory by looking at actual checkpoint directories.
+    
+    Note: This looks at actual checkpoint directories, not the step file,
+    because checkpoints may not exist for every step (e.g., when training is skipped).
+    """
+    checkpoint_step = get_step_from_checkpoints(output_dir)
+    if checkpoint_step == 0:
         return None
 
-    checkpoint_dir = os.path.join(output_dir, "checkpoints", f"{step:04d}")
+    checkpoint_dir = os.path.join(output_dir, "checkpoints", f"{checkpoint_step:04d}")
     if os.path.exists(checkpoint_dir):
         return checkpoint_dir
 

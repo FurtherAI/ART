@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, AsyncIterator
 
 import torch
 
-from art.utils.get_model_step import get_step_from_dir
+from art.utils.get_model_step import get_step_from_dir, write_step
 
 from .. import dev, types
 from ..local.checkpoints import get_last_checkpoint_dir
@@ -206,6 +206,8 @@ class UnslothService:
             checkpoint_dir = get_step_checkpoint_dir(self.output_dir, next_step)
             os.makedirs(os.path.dirname(checkpoint_dir), exist_ok=True)
             self.state.trainer.save_model(checkpoint_dir)
+            # Write the step to the step file (decoupled from checkpoint dirs)
+            write_step(self.output_dir, next_step)
             if verbose:
                 print("Setting new LoRA adapter...")
             # Set the new LoRA adapter

@@ -59,6 +59,7 @@ from ..preprocessing.tokenize import tokenize_trajectory_groups
 from ..trajectories import Trajectory, TrajectoryGroup
 from ..types import Message, TrainConfig
 from ..utils import format_message, get_model_step
+from ..utils.get_model_step import write_step
 from .checkpoints import (
     delete_checkpoints,
 )
@@ -446,29 +447,14 @@ class LocalBackend(Backend):
                 "have the same reward and thus no advantage to train on."
             )
 
-            # Still advance the step by renaming the checkpoint directory
+            # Advance the step by writing to the step file (decoupled from checkpoints)
             current_step = self.__get_step(model)
             next_step = current_step + 1
-            current_checkpoint_dir = get_step_checkpoint_dir(
-                get_model_dir(model=model, art_path=self._path), current_step
+            model_dir = get_model_dir(model=model, art_path=self._path)
+            write_step(model_dir, next_step)
+            print(
+                f"Advanced step from {current_step} to {next_step} (no training occurred)"
             )
-            next_checkpoint_dir = get_step_checkpoint_dir(
-                get_model_dir(model=model, art_path=self._path), next_step
-            )
-
-            # Advance the step: rename existing checkpoint or create empty dir if none exists
-            if os.path.exists(current_checkpoint_dir):
-                os.rename(current_checkpoint_dir, next_checkpoint_dir)
-                print(
-                    f"Advanced step from {current_step} to {next_step} (no training occurred)"
-                )
-            else:
-                # No checkpoint exists yet (e.g., first step with zero advantage)
-                # Create an empty checkpoint dir so get_step() returns the advanced step
-                os.makedirs(next_checkpoint_dir, exist_ok=True)
-                print(
-                    f"Advanced step to {next_step} (no training occurred, no prior checkpoint)"
-                )
 
             # Log metrics showing no groups were trainable
             self._log_metrics(

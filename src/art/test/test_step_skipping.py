@@ -173,19 +173,21 @@ async def test_step_skipping():
             )
             print(f"Step after skipping: {step_after_skip}")
 
-            # Check that checkpoint 0002 exists (renamed from 0001)
-            checkpoint_2 = get_step_checkpoint_dir(model_dir, 2)
-            assert os.path.exists(checkpoint_2), (
-                f"Checkpoint {checkpoint_2} should exist after skipping"
-            )
-            assert not os.path.exists(checkpoint_1), (
-                f"Checkpoint {checkpoint_1} should have been renamed"
+            # Check that checkpoint 0001 still exists (no new checkpoint created, step is tracked in step file)
+            # The step is now decoupled from checkpoints - step file increments but no new checkpoint is created
+            assert os.path.exists(checkpoint_1), (
+                f"Checkpoint {checkpoint_1} should still exist (step is decoupled from checkpoints)"
             )
             assert os.path.exists(checkpoint_0), (
                 f"Checkpoint {checkpoint_0} should still exist"
             )
-            print(f"✓ Found renamed checkpoint after skip: {checkpoint_2}")
-            print("✓ Verified checkpoint 0001 was renamed (no longer exists)")
+            # Verify no checkpoint 0002 was created (no training occurred)
+            checkpoint_2 = get_step_checkpoint_dir(model_dir, 2)
+            assert not os.path.exists(checkpoint_2), (
+                f"Checkpoint {checkpoint_2} should NOT exist (no training occurred at step 2)"
+            )
+            print(f"✓ Checkpoint 0001 still exists: {checkpoint_1}")
+            print("✓ Verified step incremented without creating new checkpoint")
 
             # Test 3: Train again with mix of trainable and non-trainable
             print(
@@ -235,13 +237,13 @@ async def test_step_skipping():
             assert final_step == 3, f"Final step should be 3, got {final_step}"
             print(f"Final step: {final_step}")
 
-            # Check that checkpoint 0003 was created
+            # Check that checkpoint 0003 was created (step 3 had training)
             checkpoint_3 = get_step_checkpoint_dir(model_dir, 3)
             assert os.path.exists(checkpoint_3), (
                 f"Checkpoint {checkpoint_3} should exist after final training"
             )
-            assert os.path.exists(checkpoint_2), (
-                f"Previous checkpoint {checkpoint_2} should still exist"
+            assert os.path.exists(checkpoint_1), (
+                f"Checkpoint {checkpoint_1} should still exist"
             )
             assert os.path.exists(checkpoint_0), (
                 f"Initial checkpoint {checkpoint_0} should still exist"
@@ -255,15 +257,27 @@ async def test_step_skipping():
                 print(f"  - {cp}")
 
             # Verify we have exactly the expected checkpoints
-            expected_checkpoints = ["0000", "0002", "0003"]
+            # 0000: initial, 0001: first training, 0003: third training (step 2 was skipped)
+            expected_checkpoints = ["0000", "0001", "0003"]
             assert all_checkpoints == expected_checkpoints, (
                 f"Expected {expected_checkpoints}, got {all_checkpoints}"
             )
+
+            # Verify the step file exists and has the correct value
+            step_file = os.path.join(model_dir, "step.txt")
+            assert os.path.exists(step_file), f"Step file should exist at {step_file}"
+            with open(step_file) as f:
+                step_from_file = int(f.read().strip())
+            assert step_from_file == 3, (
+                f"Step file should contain 3, got {step_from_file}"
+            )
+            print(f"✓ Step file contains correct value: {step_from_file}")
 
             print("\n✅ All tests passed!")
             print(
                 "Successfully tested step progression: 0 -> 1 (train) -> 2 (skip) -> 3 (train)"
             )
+            print("✅ Step is now decoupled from checkpoints!")
             print("✅ Filesystem verification passed!")
             print("\n📊 Expected metrics logged:")
             print("  Step 1: num_groups_submitted=5, num_groups_trainable=3")

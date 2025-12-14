@@ -26,7 +26,7 @@ from ..preprocessing.pack import (
     PackedTensors,
     packed_tensors_from_dir,
 )
-from ..utils.get_model_step import get_step_from_dir
+from ..utils.get_model_step import get_step_from_dir, write_step
 from ..utils.output_dirs import get_step_checkpoint_dir
 from ..vllm import get_llm, get_worker, openai_server_task, run_on_workers
 from .train import gc_and_empty_cuda_cache, train
@@ -228,6 +228,8 @@ class DecoupledUnslothService:
         checkpoint_dir = get_step_checkpoint_dir(self.output_dir, next_step)
         os.makedirs(checkpoint_dir, exist_ok=True)
         self._state.trainer.save_model(checkpoint_dir)
+        # Write the step to the step file (decoupled from checkpoint dirs)
+        write_step(self.output_dir, next_step)
 
         # Free memory before waking up vLLM
         gc_and_empty_cuda_cache()

@@ -48,6 +48,7 @@ from tqdm import tqdm
 
 from .. import dev, types
 from ..preprocessing.pack import PackedTensors, packed_tensors_from_dir
+from ..utils.get_model_step import get_step_from_dir, write_step
 from ..unsloth.train import gc_and_empty_cuda_cache
 from .batch import Batch
 from .config import (
@@ -1166,26 +1167,16 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                             )
                             os.makedirs(checkpoint_dir, exist_ok=True)
 
-                            # Get the next step number from the checkpoints directory
-                            next_step = (
-                                max(
-                                    (
-                                        int(subdir)
-                                        for subdir in os.listdir(checkpoint_dir)
-                                        if os.path.isdir(
-                                            os.path.join(checkpoint_dir, subdir)
-                                        )
-                                        and subdir.isdigit()
-                                    ),
-                                    default=0,
-                                )
-                                + 1
-                            )
+                            # Get the next step number using the step file (or fallback to checkpoint dirs)
+                            next_step = get_step_from_dir(self._output_dir) + 1
 
                             os.rename(
                                 f"{self._output_dir}/epoch_0",
                                 f"{checkpoint_dir}/{next_step:04d}",
                             )
+                            
+                            # Write the step to the step file (decoupled from checkpoint dirs)
+                            write_step(self._output_dir, next_step)
                     time.sleep(0.5)
                     continue
             packed_tensors = packed_tensors_from_dir(**batch.disk_packed_tensors)
