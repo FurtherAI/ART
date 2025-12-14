@@ -456,11 +456,18 @@ class LocalBackend(Backend):
                 get_model_dir(model=model, art_path=self._path), next_step
             )
 
-            # If the current checkpoint exists, rename it to the next step
+            # Advance the step: rename existing checkpoint or create empty dir if none exists
             if os.path.exists(current_checkpoint_dir):
                 os.rename(current_checkpoint_dir, next_checkpoint_dir)
                 print(
                     f"Advanced step from {current_step} to {next_step} (no training occurred)"
+                )
+            else:
+                # No checkpoint exists yet (e.g., first step with zero advantage)
+                # Create an empty checkpoint dir so get_step() returns the advanced step
+                os.makedirs(next_checkpoint_dir, exist_ok=True)
+                print(
+                    f"Advanced step to {next_step} (no training occurred, no prior checkpoint)"
                 )
 
             # Log metrics showing no groups were trainable
