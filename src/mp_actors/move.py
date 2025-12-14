@@ -158,7 +158,29 @@ class Proxy:
                 [self._futures[request.id], self._process_future],
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            return done.pop().result()
+            # Check which future completed
+            completed_future = done.pop()
+            if completed_future is self._process_future:
+                # Check if process is still alive for better error message
+                proc_name = f" '{self._process_name}'" if self._process_name else ""
+                if not self._process.is_alive():
+                    exit_code = self._process.exitcode
+                    if exit_code is None:
+                        raise RuntimeError(f"Child process{proc_name} died unexpectedly")
+                    elif exit_code < 0:
+                        raise RuntimeError(
+                            f"Child process{proc_name} was killed by signal {-exit_code}"
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"Child process{proc_name} exited with code {exit_code}"
+                        )
+                # Process is still alive but _process_future completed - check if cancelled
+                if completed_future.cancelled():
+                    raise RuntimeError(
+                        f"Child process{proc_name} proxy was closed while request was in flight"
+                    )
+            return completed_future.result()
 
         # Check if it's a method or property
         attr = getattr(self._obj, name)

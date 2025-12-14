@@ -78,14 +78,22 @@ def tokenize_trajectory_groups(
                 ),
                 *trajectory.additional_histories,
             ]:
-                if result := tokenize_trajectory(
-                    tokenizer,
-                    image_processor,
-                    history,
-                    advantage,
-                    allow_training_without_logprobs,
-                ):
-                    trajectory_results.append(result)
+                try:
+                    if result := tokenize_trajectory(
+                        tokenizer,
+                        image_processor,
+                        history,
+                        advantage,
+                        allow_training_without_logprobs,
+                    ):
+                        trajectory_results.append(result)
+                except Exception as e:
+                    import traceback
+                    print(f"Error tokenizing trajectory: {e}\n{traceback.format_exc()}")
+                    import pickle
+                    with open("/home/ubuntu/tokenize_traj_error.pkl", "wb") as f:
+                        pickle.dump(trajectory, f)
+                    raise e
             weight = 1 / (
                 sum(sum(result.assistant_mask) for result in trajectory_results) + 1e-6
             )

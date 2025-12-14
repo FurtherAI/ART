@@ -43,6 +43,13 @@ class TorchtuneService:
     async def vllm_engine_is_sleeping(self) -> bool:
         return self._is_sleeping
 
+    def _log(self, msg: str) -> None:
+        """Write debug log to file."""
+        import datetime
+        with open("/home/ubuntu/service.log", "a") as f:
+            f.write(f"[{datetime.datetime.now().isoformat()}] {msg}\n")
+            f.flush()
+
     async def train(
         self,
         disk_packed_tensors: DiskPackedTensors,
@@ -50,7 +57,13 @@ class TorchtuneService:
         _config: dev.TrainConfig,
         verbose: bool = False,
     ) -> AsyncIterator[dict[str, float]]:
-        llm = await self.llm
+        self._log("Starting train method")
+        try:
+            llm = await self.llm
+            self._log("Got LLM engine")
+        except Exception as e:
+            self._log(f"Failed to get LLM: {e}")
+            raise
         pids_path = f"{self.output_dir}/pids.txt"
         # reset the pids file
         with open(pids_path, "w") as f:
@@ -60,6 +73,7 @@ class TorchtuneService:
         Path(weights_path).unlink(missing_ok=True)
         async_weight_syncing = self.torchtune_args.get("async_weight_syncing", False)
         # start putting the workers to sleep
+        self._log(f"Starting sleep task for workers, async_weight_syncing={async_weight_syncing}")
         sleep_task = asyncio.create_task(
             run_on_workers(
                 llm,
@@ -72,15 +86,24 @@ class TorchtuneService:
             )
         )
         # wait for the workers to write their pids twice, indicating that they are asleep
+        self._log("Waiting for workers to sleep...")
         while True:
             pids = Counter(open(pids_path).read().splitlines())
             if set(pids.values()) == {2}:
                 break
             await asyncio.sleep(0.25)
+        self._log(f"Workers are asleep, pids: {pids}")
         self._is_sleeping = True
         # acquire the train process and queue
-        train_process = await self.train_process
+        self._log("Getting train process")
+        try:
+            train_process = await self.train_process
+            self._log(f"Got train process: pid={train_process.pid}")
+        except Exception as e:
+            self._log(f"Failed to get train process: {e}")
+            raise
         train_queue = await self.train_queue
+        self._log("Got train queue, writing batch")
         # write the batch to communicate with the train process
         with open(f"{self.output_dir}/batches.jsonl", "a") as f:
             f.write(
@@ -92,6 +115,7 @@ class TorchtuneService:
                 + "\n"
             )
         # consume the batch gradient step results
+        self._log("Starting to consume gradient steps")
         num_gradient_steps = -1
         while num_gradient_steps != 0:
             done, _ = await asyncio.wait(
@@ -107,19 +131,39 @@ class TorchtuneService:
                     result["num_gradient_steps"] = int(result["num_gradient_steps"])
                     if num_gradient_steps == -1:
                         num_gradient_steps = result["num_gradient_steps"]
+                        self._log(f"Expected gradient steps: {num_gradient_steps}")
                     yield result
                 else:
+                    # Train process exited - get more info
+                    exit_code = train_process.returncode
+                    self._log(f"Train process exited with code: {exit_code}")
+                    # Try to read the log file for more context
+                    log_path = f"{self.output_dir}/logs/train.log"
+                    try:
+                        with open(log_path) as f:
+                            log_content = f.read()
+                            self._log(f"Last 2000 chars of train.log:\n{log_content[-2000:]}")
+                    except Exception as e:
+                        self._log(f"Could not read log: {e}")
                     raise RuntimeError(
-                        f"Train process exited early. See {self.output_dir}/logs/train.log for details."
+                        f"Train process exited early with code {exit_code}. See {self.output_dir}/logs/train.log for details."
                     )
             num_gradient_steps -= 1
         # wait for the workers to wake up
-        await sleep_task
+        self._log("Training complete, waiting for workers to wake up...")
+        try:
+            await sleep_task
+            self._log("Workers woke up successfully")
+        except Exception as e:
+            self._log(f"Error waking up workers: {e}")
+            raise
         self._is_sleeping = False
         # update the weights after wake up if async_weight_syncing is enabled
         if async_weight_syncing:
+            self._log("Starting async weight syncing")
             asyncio.create_task(self.update_worker_weights(llm, weights_path, verbose))
         else:
+            self._log("Removing weights file (sync mode)")
             # remove the weights file
             Path(weights_path).unlink(missing_ok=True)
 
@@ -270,6 +314,14 @@ class TorchtuneService:
         return get_last_checkpoint_dir(self.output_dir)
 
 
+def _worker_log(msg: str) -> None:
+    """Write debug log from worker process."""
+    import datetime
+    with open("/home/ubuntu/service.log", "a") as f:
+        f.write(f"[{datetime.datetime.now().isoformat()}] [worker-{os.getpid()}] {msg}\n")
+        f.flush()
+
+
 def sleep(
     *, level: int, pids_path: str, weights_path: str | None, profile: bool
 ) -> None:
@@ -285,6 +337,7 @@ def sleep(
     from vllm.device_allocator.cumem import CuMemAllocator
     from vllm.v1.worker.gpu_worker import logger
 
+    _worker_log(f"sleep() called: level={level}, weights_path={weights_path}")
     with open(pids_path, "a") as f:
         f.write(f"{os.getpid()}\n")
     worker = get_worker()
@@ -293,17 +346,22 @@ def sleep(
         if not (profile and worker.rank == 0):
             logger.setLevel(logging.CRITICAL)
         setattr(allocator, "_override_tags", {"weights", "kv_cache"})
+        _worker_log("Calling worker.sleep()")
         with worker.time("sleep"):
             worker.sleep(level)
+        _worker_log("worker.sleep() returned")
         with open(pids_path, "a") as f:
             f.write(f"{os.getpid()}\n")
         weights = None
+        _worker_log(f"Waiting for weights or pids_path removal...")
         while True:
             if weights_path:
                 # wait for the weights file to be created
                 try:
+                    _worker_log(f"Trying to load weights from {weights_path}")
                     with worker.time("load_file"):
                         weights = load_file(weights_path)
+                    _worker_log("Weights loaded successfully")
                     break
                 except FileNotFoundError:
                     time.sleep(1)
@@ -313,13 +371,22 @@ def sleep(
                 continue
             else:
                 # no pids file indicates we can wake up
+                _worker_log("pids_path removed, waking up")
                 break
+        _worker_log("Calling worker.wake_up()")
         with worker.time("wake_up"):
             worker.wake_up()
+        _worker_log("worker.wake_up() returned")
         if weights is None:
+            _worker_log("No weights to load, returning")
             return
+        _worker_log("Loading weights into model")
         with worker.time("load_weights"):
             worker.model_runner.model.load_weights(weights.items())  # type: ignore
+        _worker_log("Weights loaded into model successfully")
+    except Exception as e:
+        _worker_log(f"ERROR in sleep(): {e}")
+        raise
     finally:
         logger.setLevel(logging.INFO)
         delattr(allocator, "_override_tags")
