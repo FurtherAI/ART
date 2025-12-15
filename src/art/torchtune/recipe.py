@@ -1183,14 +1183,22 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             if self._current_device != self._device:
                 self._move_to(self._device)
             n = batch.disk_packed_tensors["num_sequences"]
+
+            def _slice_micro_batch(packed_tensors: PackedTensors, idx: int) -> PackedTensors:
+                micro_batch: dict[str, Any] = {}
+                for k, v in packed_tensors.items():
+                    if k in ("pixel_values", "image_grid_thw"):
+                        # These are lists of tensors/None, not tensors
+                        val = v[idx % n]
+                        if val is not None:
+                            micro_batch[k] = val
+                        # Skip if None (text-only model/data)
+                    else:
+                        micro_batch[k] = cast(torch.Tensor, v)[idx % n : idx % n + 1]
+                return cast(PackedTensors, micro_batch)
+
             micro_batches = [
-                cast(
-                    PackedTensors,
-                    {
-                        k: cast(torch.Tensor, v)[i % n : i % n + 1]
-                        for k, v in packed_tensors.items()
-                    },
-                )
+                _slice_micro_batch(packed_tensors, i)
                 for i in range(
                     self.dp_rank,
                     math.ceil(n / self.dp_degree) * self.dp_degree,
