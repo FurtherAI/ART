@@ -1079,26 +1079,9 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     batch = Batch.model_validate_json(f.readlines()[curr_epoch].strip())
                 except (IndexError, ValidationError):
                     if self._current_device == self._device:
-                        if self.is_distributed:
-                            gather_cpu_state_dict = training.gather_cpu_state_dict
+                        # Captured model weights (in HF format) will be stored here
+                        captured_model_weights: dict[str, Any] = {}
 
-                            def _gather_cpu_state_dict(
-                                model: FSDPModule,
-                                is_rank_zero: bool,
-                                device: torch.device | None = None,
-                                adapter_weights_only: bool = False,
-                            ) -> dict[str, Any]:
-                                state_dict = gather_cpu_state_dict(
-                                    model, is_rank_zero, device, adapter_weights_only
-                                )
-                                # signal that the GPUs are free
-                                Path(f"{self._output_dir}/pids.txt").unlink(
-                                    missing_ok=True
-                                )
-                                training.gather_cpu_state_dict = gather_cpu_state_dict
-                                return state_dict
-
-                            training.gather_cpu_state_dict = _gather_cpu_state_dict
                         checkpointer: FullModelHFCheckpointer = (
                             self._checkpoint_client._get_checkpointer()
                         )
@@ -1120,17 +1103,10 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
 
                                 def __setitem__(self, key: str, value: Any) -> None:
                                     if key == training.MODEL_KEY:
-                                        start_time = time.perf_counter()
-                                        save_file(
-                                            value, "/dev/shm/weights.safetensors.tmp"
-                                        )
-                                        os.rename(
-                                            "/dev/shm/weights.safetensors.tmp",
-                                            "/dev/shm/weights.safetensors",
-                                        )
-                                        end_time = time.perf_counter()
+                                        # Capture the HF-format weights for later saving
+                                        captured_model_weights["weights"] = value
                                         logger.info(
-                                            f"Saving state dict took {end_time - start_time:.2f} seconds"
+                                            "Captured model weights for deferred saving"
                                         )
                                     super().__setitem__(key, value)
 
@@ -1145,9 +1121,6 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
 
                         checkpointer.save_checkpoint = _save_checkpoint
                         self._move_to(torch.device("cpu"))
-                        if not self.is_distributed:
-                            # signal that the GPUs are free
-                            Path(f"{self._output_dir}/pids.txt").unlink(missing_ok=True)
                         self._checkpoint_client.save_checkpoint(
                             model=self._model,
                             optimizer=self._optimizer_or_optim_ckpt_wrapper,
@@ -1160,6 +1133,28 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                             epoch=0,
                             single_device=not self.is_distributed,
                         )
+
+                        # Now that save_checkpoint is complete, write safetensors and signal GPUs are free
+                        if self._is_rank_zero and "weights" in captured_model_weights:
+                            start_time = time.perf_counter()
+                            save_file(
+                                captured_model_weights["weights"],
+                                "/dev/shm/weights.safetensors.tmp",
+                            )
+                            os.rename(
+                                "/dev/shm/weights.safetensors.tmp",
+                                "/dev/shm/weights.safetensors",
+                            )
+                            end_time = time.perf_counter()
+                            self._logger.info(
+                                f"Saving state dict took {end_time - start_time:.2f} seconds"
+                            )
+                            # Free memory from captured weights
+                            del captured_model_weights["weights"]
+
+                        # Signal that the GPUs are free (after checkpoint is fully saved)
+                        Path(f"{self._output_dir}/pids.txt").unlink(missing_ok=True)
+
                         if self._is_rank_zero:
                             # Ensure checkpoints directory exists
                             checkpoint_dir = os.path.join(
