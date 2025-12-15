@@ -7,6 +7,7 @@
 # Modifications:
 # Bradley Hilton, OpenPipe Inc., and other ART contributors.
 
+import gc
 import os
 import sys
 import time
@@ -1134,6 +1135,15 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                             single_device=not self.is_distributed,
                         )
 
+                        # Clear all unused objects, state dicts, parameters before saving weights
+                        del checkpointer
+                        del save_checkpoint
+                        del _save_checkpoint
+                        batch = None
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+
                         # Now that save_checkpoint is complete, write safetensors and signal GPUs are free
                         if self._is_rank_zero and "weights" in captured_model_weights:
                             start_time = time.perf_counter()
@@ -1146,11 +1156,11 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                                 "/dev/shm/weights.safetensors",
                             )
                             end_time = time.perf_counter()
+                            # Free memory from captured weights
+                            del captured_model_weights["weights"]
                             self._logger.info(
                                 f"Saving state dict took {end_time - start_time:.2f} seconds"
                             )
-                            # Free memory from captured weights
-                            del captured_model_weights["weights"]
 
                         # Signal that the GPUs are free (after checkpoint is fully saved)
                         Path(f"{self._output_dir}/pids.txt").unlink(missing_ok=True)
@@ -1236,6 +1246,7 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
             # Move model parameters one by one
             with torch.no_grad():
                 for param in self._model.parameters():
+                    param.grad = None
                     if param.device != device:
                         param_data = param.data.to(device)
                         param.data = param_data
