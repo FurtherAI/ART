@@ -1064,6 +1064,16 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     break
 
             self.epochs_run += 1
+            
+            # Clear training tensors to release autograd graph before checkpoint save
+            # These variables hold references to activations/losses from the last step
+            # Set to None to break references
+            current_loss = None  # type: ignore
+            micro_batch = None  # type: ignore
+            micro_batches = None  # type: ignore
+            batch = None  # type: ignore
+            gc.collect()
+            torch.cuda.empty_cache()
 
         self._profiler.stop()
 
@@ -1135,15 +1145,6 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                             single_device=not self.is_distributed,
                         )
 
-                        # Clear all unused objects, state dicts, parameters before saving weights
-                        del checkpointer
-                        del save_checkpoint
-                        del _save_checkpoint
-                        batch = None
-                        gc.collect()
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize()
-
                         # Now that save_checkpoint is complete, write safetensors and signal GPUs are free
                         if self._is_rank_zero and "weights" in captured_model_weights:
                             start_time = time.perf_counter()
@@ -1151,13 +1152,13 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                                 captured_model_weights["weights"],
                                 "/dev/shm/weights.safetensors.tmp",
                             )
+                            del captured_model_weights["weights"]
                             os.rename(
                                 "/dev/shm/weights.safetensors.tmp",
                                 "/dev/shm/weights.safetensors",
                             )
                             end_time = time.perf_counter()
                             # Free memory from captured weights
-                            del captured_model_weights["weights"]
                             self._logger.info(
                                 f"Saving state dict took {end_time - start_time:.2f} seconds"
                             )
