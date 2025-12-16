@@ -46,7 +46,7 @@ class TorchtuneService:
     def _log(self, msg: str) -> None:
         """Write debug log to file."""
         import datetime
-        with open("/home/ubuntu/service.log", "a") as f:
+        with open("service.log", "a") as f:
             f.write(f"[{datetime.datetime.now().isoformat()}] {msg}\n")
             f.flush()
 
@@ -317,7 +317,7 @@ class TorchtuneService:
 def _worker_log(msg: str) -> None:
     """Write debug log from worker process."""
     import datetime
-    with open("/home/ubuntu/service.log", "a") as f:
+    with open("service.log", "a") as f:
         f.write(f"[{datetime.datetime.now().isoformat()}] [worker-{os.getpid()}] {msg}\n")
         f.flush()
 

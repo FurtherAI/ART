@@ -91,7 +91,7 @@ def tokenize_trajectory_groups(
                     import traceback
                     print(f"Error tokenizing trajectory: {e}\n{traceback.format_exc()}")
                     import pickle
-                    with open("/home/ubuntu/tokenize_traj_error.pkl", "wb") as f:
+                    with open("tokenize_traj_error.pkl", "wb") as f:
                         pickle.dump(trajectory, f)
                     raise e
             weight = 1 / (
