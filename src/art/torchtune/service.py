@@ -60,7 +60,6 @@ class TorchtuneService:
         Path(weights_path).unlink(missing_ok=True)
         async_weight_syncing = self.torchtune_args.get("async_weight_syncing", False)
         # start putting the workers to sleep
-        self._log(f"Starting sleep task for workers, async_weight_syncing={async_weight_syncing}")
         self._is_sleeping = True
         sleep_task = asyncio.create_task(
             run_on_workers(
@@ -79,7 +78,6 @@ class TorchtuneService:
             if set(pids.values()) == {2}:
                 break
             await asyncio.sleep(0.25)
-        self._log(f"Workers are asleep, pids: {pids}")
         # acquire the train process and queue
         train_process = await self.train_process
         train_queue = await self.train_queue

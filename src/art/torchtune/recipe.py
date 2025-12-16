@@ -1063,6 +1063,14 @@ class FullFinetuneRecipeDistributed(FTRecipeInterface):
                     break
 
             self.epochs_run += 1
+            # Clear training tensors to release autograd graph before checkpoint save
+            # These variables hold references to activations/losses from the last step
+            # Set to None to break references
+            current_loss = None  # type: ignore
+            micro_batch = None  # type: ignore
+            micro_batches = None  # type: ignore
+            batch = None  # type: ignore
+            gc_and_empty_cuda_cache(n=1)
 
         self._profiler.stop()
 
