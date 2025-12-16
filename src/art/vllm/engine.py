@@ -30,7 +30,7 @@ async def get_llm(args: vllm.AsyncEngineArgs) -> AsyncLLM:
     # Download model only if it's not a local path
     if not os.path.exists(args.model):
         process = await asyncio.create_subprocess_shell(
-            f"HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download {args.model}"
+            f"HF_HUB_ENABLE_HF_TRANSFER=1 hf download --repo-type=model {args.model}"
         )
         await process.wait()
 

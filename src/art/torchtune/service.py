@@ -74,6 +74,7 @@ class TorchtuneService:
         async_weight_syncing = self.torchtune_args.get("async_weight_syncing", False)
         # start putting the workers to sleep
         self._log(f"Starting sleep task for workers, async_weight_syncing={async_weight_syncing}")
+        self._is_sleeping = True
         sleep_task = asyncio.create_task(
             run_on_workers(
                 llm,
@@ -93,7 +94,6 @@ class TorchtuneService:
                 break
             await asyncio.sleep(0.25)
         self._log(f"Workers are asleep, pids: {pids}")
-        self._is_sleeping = True
         # acquire the train process and queue
         self._log("Getting train process")
         try:
@@ -299,8 +299,9 @@ class TorchtuneService:
             return self.base_model
         # Otherwise, assume it's a HuggingFace model id and download it
         process = await asyncio.subprocess.create_subprocess_exec(
-            "huggingface-cli",
+            "hf",
             "download",
+            "--repo-type=model",
             self.base_model,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
