@@ -486,6 +486,7 @@ class LocalBackend(Backend):
             cp = torchtune_args.get("context_parallel_dim", 1)
             world_size = torch.cuda.device_count()
             dp = world_size // (tp * cp)
+            print(f"Estimated gradient steps: {estimated_gradient_steps} reduced by {dp}x to {math.ceil(estimated_gradient_steps / dp)}")
             estimated_gradient_steps = math.ceil(estimated_gradient_steps / dp)
         pbar = tqdm.tqdm(total=estimated_gradient_steps, desc="train")
         async for result in service.train(
